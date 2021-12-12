@@ -10,8 +10,14 @@ const keys = [];
 
 let tickCount = 0;
 let gameStarted = false;
+
+// SHOP GLOBALS
 let shopShown = false;
 let shopUpgrades;
+
+const shopImage = new Image();
+shopImage.src = 'images/shop.png';
+let shop = { show: false, width: 100, height: 100, x: 1000, y: 1000, speedx: -1.5 };
 
 // ROCKET GLOBALS
 let rocketSpeed = -1.5;
@@ -20,7 +26,9 @@ const rocketHeight = 46;
 
 const rocketImage = new Image();
 rocketImage.src = 'images/rocket.png';
-const rocket = { x: 0, y: 0, speed: 0 };
+const rocket = { x: 0, y: 0, starSoundI: 0, explosionSoundI: 0 };
+
+let shots = [];
 
 // STAR GLOBALS
 let starSpeed = -1.5;
@@ -29,22 +37,22 @@ const starHeight = 25;
 const starImage = new Image();
 starImage.src = 'images/star.png';
 
-const starSound = new Audio('sounds/starCollected.m4a');
+const starSounds = [1, 2, 3, 4, 5].map(s => new Audio('sounds/starCollected.m4a'));
 
 let numStars = 20;
 let stars = [];
 
 // ASTEROID GLOBALS
-let asteroidSpeed = -1.5;
-const asteroidWidth = 115;
-const asteroidHeight = 108;
+let asteroidSpeed = -1;
+let asteroidSize = 80;
+
 const asteroidImage = new Image();
 asteroidImage.src = 'images/asteroid.png';
 
 const explosionImage = new Image();
 explosionImage.src = 'images/explosion.png';
 
-const explosionSound = new Audio('sounds/explosion.m4a');
+const explosionSounds = [1, 2, 3, 4, 5].map(s => new Audio('sounds/explosion.m4a'));
 
 let numAsteroids = 3;
 let asteroids = [];
@@ -61,6 +69,24 @@ function objectsIntersect(a, b) {
 
 function getRandomY(objectHeight) {
   return scoreHeight + objectHeight + Math.random() * (canvasHeight - objectHeight - scoreHeight - healthHight);
+}
+
+function getRandomSpeed(speed) {
+  return speed * .8 + Math.random() * speed * .4;
+}
+
+function getRandomSize(size) {
+  return size / 2 + Math.random() * size;
+}
+
+function getAsteroidBox(asteroid) {
+  return {
+    x: asteroid.x - asteroid.width / 2,
+    y: asteroid.y - asteroid.height / 2,
+    width: asteroid.width,
+    height: asteroid.height,
+    exploded: asteroid.exploded
+  }
 }
 
 // INIT FUNCTIONS
@@ -133,21 +159,29 @@ function initStars() {
   }
 }
 
+function createAsteroid(i) {
+  const x = (i + 1) * (canvasWidth / (numAsteroids - 1));
+  const y = getRandomY(asteroidSize - 20);
+
+  const size = getRandomSize(asteroidSize);
+  const width = size;
+  const height = size;
+
+  const speedx = getRandomSpeed(asteroidSpeed);
+  console.log(speedx);
+  const dir = 0;
+  const show = true;
+  const asteroid = { x, y, width, height, speedx, dir, show };
+  return asteroid;
+}
+
 function initAsteroids() {
   for (let i = 0; i < numAsteroids; i++) {
-    const x = (i + 1) * (canvasWidth / (numAsteroids - 1));
-    const y = getRandomY(asteroidHeight - 20);
-    const width = asteroidWidth;
-    const height = asteroidWidth; //since it's spinning, using larger value
-    const speedx = asteroidSpeed;
-    const dir = 0;
-    const show = true;
-    const asteroid = { x, y, width, height, speedx, dir, show }
-    asteroids.push(asteroid);
+    asteroids.push(createAsteroid(i));
   }
 }
 
-// MOVE FUNCTIONS
+// ACTION FUNCTIONS
 
 function moveRocket() {
   if (keys['ArrowUp']) {
@@ -169,10 +203,55 @@ function moveRocket() {
   }
 }
 
+function shoot() {
+  const shot = {
+    x: rocket.x + rocket.width,
+    y: rocket.y + rocket.height / 2,
+    width: 10,
+    height: 5,
+    speedx: 1,
+    show: true
+  }
+  shots.push(shot);
+}
+
 // DRAW FUNCTIONS
 
 function drawRocket() {
   ctx.drawImage(rocketImage, rocket.x, rocket.y);
+}
+
+function drawShots() {
+  const shotsCopy = [...shots];
+
+  for (const [i, shot] of shotsCopy.entries()) {
+    if (shot.x > canvasWidth) {
+      shots.splice(i, 1);
+    }
+    shot.x += shot.speedx;
+    let { x, y, width, height } = shot;
+    ctx.fillStyle = '#ffffff';
+    if (shot.show) {
+      ctx.fillRect(x, y, width, height);
+    }
+
+    for (const asteroid of asteroids) {
+      if (asteroid.show && shot.show && objectsIntersect(getAsteroidBox(asteroid), shot)) {
+        shots.splice(i, 1);
+        shot.show = false;
+        asteroid.show = false;
+        asteroid.exploded = 12;
+      }
+    }
+
+    if (shop.show && shot.show && objectsIntersect(shot, shop)) {
+      shots.splice(i, 1);
+      shot.show = false;
+      shop.show = false;
+      shop.exploded = 12;
+    }
+    
+  }
 }
 
 function drawStars() {
@@ -185,9 +264,9 @@ function drawStars() {
       if (starTickCount > rocket.starCount) {
         rocket.starScore++;
         rocket.starCount++;
-        starSound.pause();
-        starSound.load();
-        starSound.play();
+
+        rocket.starSoundI = (rocket.starSoundI + 1) % starSounds.length;
+        starSounds[rocket.starSoundI].play();
       }
       star.show = false;
     }
@@ -206,22 +285,20 @@ function drawStars() {
   rocket.starCount = starTickCount; //reset starCount to stars touching in this tick
 }
 
-function asteroidExplosion(asteroid) {
-  const frame = 12 - asteroid.exploded;
+function explosion(objectBox, object) {
+  const frame = 12 - object.exploded;
 
   if (frame === 0) {
-    explosionSound.pause();
-    explosionSound.load();
-    explosionSound.play();
+    rocket.explosionSoundI = (rocket.explosionSoundI + 1) % explosionSounds.length;
+    explosionSounds[rocket.explosionSoundI].play();
   }
   const sx = (frame % 5) * 192;
   const sy = Math.floor(frame / 5) * 192;
   // console.log(sx, sy);
-  const dx = asteroid.x - 96;
-  const dy = asteroid.y - 96;
-  ctx.drawImage(explosionImage, sx, sy, 192, 192, dx, dy, 192, 192);
+  const { x, y, width, height } = objectBox;
+  ctx.drawImage(explosionImage, sx, sy, 192, 192, x, y, width, height);
   if (tickCount % 5 === 0) {
-    asteroid.exploded--;
+    object.exploded--;
   }
 }
 
@@ -230,18 +307,12 @@ function drawAsteroids() {
 
   for (const asteroid of asteroids) {
     asteroid.x += asteroid.speedx;
-    const asteroidBox = {
-      x: asteroid.x - asteroidWidth / 2,
-      y: asteroid.y - asteroidHeight / 2,
-      width: asteroidWidth,
-      height: asteroidWidth
-    }
 
     if (asteroid.exploded > 0) {
-      asteroidExplosion(asteroid);
+      explosion(getAsteroidBox(asteroid), asteroid);
     }
 
-    if (objectsIntersect(rocket, asteroidBox)) {
+    if (asteroid.show && objectsIntersect(rocket, getAsteroidBox(asteroid))) {
       asteroidTickCount++;
       if (asteroidTickCount > rocket.asteroidCount) {
         rocket.health -= 10;
@@ -251,10 +322,11 @@ function drawAsteroids() {
       asteroid.show = false;
     }
 
-    if (asteroid.x < 0 - asteroidWidth) {
+    if (asteroid.x < 0 - asteroid.width) {
       asteroid.show = true;
-      asteroid.x = canvasWidth + asteroidWidth;
-      asteroid.y = getRandomY(asteroidHeight - 20);
+      asteroid.speedx = getRandomSpeed(asteroidSpeed);
+      asteroid.x = canvasWidth + asteroid.width;
+      asteroid.y = getRandomY(asteroid.height - 20);
     }
 
     if (asteroid.show) {
@@ -262,12 +334,46 @@ function drawAsteroids() {
       ctx.save();
       ctx.translate(asteroid.x, asteroid.y);
       ctx.rotate(asteroid.dir);
-      ctx.drawImage(asteroidImage, -asteroidWidth / 2, -asteroidHeight / 2);
+      ctx.drawImage(
+        asteroidImage,
+        -asteroid.width / 2,
+        -asteroid.height / 2,
+        asteroid.width,
+        asteroid.height
+      );
       ctx.restore();
     }
   }
 
   rocket.asteroidCount = asteroidTickCount; //reset starCount to stars touching in this tick
+}
+
+function addShop() {
+  if (!shop.show && tickCount % 100 === 0 && Math.random() > .8) {
+    shop.show = true;
+    shop.x = canvasWidth + 100;
+    shop.y = getRandomY(shop.height);
+  }
+}
+
+function drawShop() {
+  shop.x += shop.speedx;
+  if (shop.show) {
+    ctx.drawImage(shopImage, shop.x, shop.y);
+
+    if (objectsIntersect(rocket, shop)) {
+      shop.show = false;
+      showShop();
+    }
+  }
+
+  if (shop.exploded > 0) {
+    explosion(shop, shop);
+  }
+
+  if (shop.x < 0 - shop.width) {
+    shop.show = false;
+  }
 }
 
 function drawStarScore() {
@@ -286,7 +392,12 @@ function drawHealth() {
 }
 
 function speedUpAsteroids() {
-  asteroids.forEach(asteroid => asteroid.speedx -= .2);
+  asteroidSpeed -= .2;
+}
+
+function addAsteroid() {
+  numAsteroids++;
+  asteroids.push(createAsteroid(numAsteroids));
 }
 
 function starShower() {
@@ -301,20 +412,23 @@ function tick() {
   if (tickCount % 100 === 0) {
     rocket.score++;
     if (rocket.score === 50) {
-      starShower();
+      // starShower();
     }
   }
 
-  if (tickCount % 1000 === 0) {
+  if (asteroidSpeed > -2 && tickCount % 1000 === 0) {
     speedUpAsteroids();
   }
 
-
+  if (numAsteroids < rocket.score / 20) {
+    addAsteroid();
+  }
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   tickCount++;
 
   moveRocket();
+  addShop();
 
   drawHealth();
   drawStarScore();
@@ -322,14 +436,14 @@ function tick() {
   drawRocket();
   drawStars();
   drawAsteroids();
-
+  drawShots();
+  drawShop();
 
   if (rocket.health <= 0) {
     gameOver();
   }
 
   setTimeout(tick, 0);
-
 }
 
 // GAME CONTROLS
@@ -359,7 +473,7 @@ function start() {
   tick();
 }
 
-function drawMenu() {
+function showMenu() {
   gameStarted = false;
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
@@ -372,12 +486,11 @@ function drawMenu() {
   ctx.font = '40px sans-serif';
   ctx.fillStyle = '#f7bfbe';
   ctx.textAlign = 'center';
-  ctx.fillText('Press space to start.', canvasWidth / 2, 400);
+  ctx.fillText('Press S to start.', canvasWidth / 2, 400);
   ctx.fillText('Once in game, press Q to quit.', canvasWidth / 2, 450);
-  ctx.fillText('Press S to enter the shop.', canvasWidth / 2, 500);
 }
 
-drawMenu();
+showMenu();
 
 function gameOver() {
   gameStarted = false;
@@ -425,12 +538,12 @@ function purchaseOrEquip(upgradeIndex) {
   }
 
   if (shopShown) {
-    drawShop();
+    showShop();
   }
 
 }
 
-function drawShop() {
+function showShop() {
   gameStarted = false;
   shopShown = true;
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -494,7 +607,7 @@ function drawShop() {
   ctx.font = '36px sans-serif';
   ctx.fillStyle = '#f7bfbe';
   ctx.textAlign = 'center';
-  ctx.fillText('Press Q to exit.', canvasWidth / 2, 560);
+  ctx.fillText('Press S to continue.', canvasWidth / 2, 560);
 }
 
 // KEY EVENTS
@@ -503,22 +616,21 @@ document.body.addEventListener("keydown", (e) => {
 });
 document.body.addEventListener("keyup", (e) => {
   keys[e.key] = false;
-  if (e.key === 's') {
-    drawShop();
-  } else if ('1234'.indexOf(e.key) !== -1) {
-    purchaseOrEquip(parseInt(e.key) - 1);
-  }
-  if (gameStarted) {
+  if (shopShown) {
+    if ('1234'.indexOf(e.key) !== -1) {
+      purchaseOrEquip(parseInt(e.key) - 1);
+    } else if (e.key === 's') {
+      continueGame();
+    }
+  } else if (gameStarted) {
     if (e.key === 'q') {
-      drawMenu();
+      showMenu();
+    } else if (e.key === ' ') {
+      shoot();
     }
   } else {
-    if (e.key === ' ') {
-      if (shopShown) {
-        continueGame();
-      } else {
-        start();
-      }
+    if (e.key === 's') {
+      start();
     }
   }
 });
